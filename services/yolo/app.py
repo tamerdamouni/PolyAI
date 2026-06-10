@@ -27,7 +27,7 @@ _raw_threshold = os.environ.get("CONFIDENCE_THRESHOLD")
 if _raw_threshold is not None:
     CONFIDENCE_THRESHOLD = float(_raw_threshold)
     logging.info(f"CONFIDENCE_THRESHOLD set to {CONFIDENCE_THRESHOLD} (from environment)")
-else:
+else:  # pragma: no cover
     CONFIDENCE_THRESHOLD = 0.5
     logging.info(f"CONFIDENCE_THRESHOLD not set, using default: {CONFIDENCE_THRESHOLD}")
 
@@ -203,6 +203,33 @@ def get_predictions_by_label(label: str):
     return list(sessions.values())
 
 
+@app.get("/predictions/score/{min_score}")
+def get_predictions_by_score(min_score: float):
+    """
+    Get all detection objects with a confidence score >= min_score
+    """
+    if not 0.0 <= min_score <= 1.0:
+        raise HTTPException(status_code=400, detail="min_score must be between 0.0 and 1.0")
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT id, prediction_uid, label, score, box
+            FROM detection_objects
+            WHERE score >= ?
+        """, (min_score,)).fetchall()
+
+    return [
+        {
+            "id": row["id"],
+            "prediction_uid": row["prediction_uid"],
+            "label": row["label"],
+            "score": row["score"],
+            "box": row["box"]
+        } for row in rows
+    ]
+
+
 @app.get("/prediction/{uid}/image")
 def get_prediction_image(uid: str):
     """
@@ -224,7 +251,7 @@ def health():
     """
     return {"status": "ok"}
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     import uvicorn
 
     init_db()
