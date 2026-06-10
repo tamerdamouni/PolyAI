@@ -46,3 +46,9 @@ services/frontend/.next/
 services/frontend/node_modules/
 services/frontend/out/
 
+# Test artifacts
+coverage.xml
+.coverage
+htmlcov/
+.pytest_cache/
+
