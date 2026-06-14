@@ -8,6 +8,20 @@ import logging
 import os
 import uuid
 import shutil
+import signal
+import sys
+
+is_shutting_down = False
+
+def handle_sigterm(signum, frame):
+    global is_shutting_down
+    is_shutting_down = True
+    logging.info("Received SIGTERM. Shutting down gracefully...")
+    # Perform cleanup: close DB connections, finish pending work, etc.
+    logging.info("Cleanup done. Exiting.")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, handle_sigterm)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -242,6 +256,13 @@ def get_prediction_image(uid: str):
     if not row or not os.path.exists(row[0]):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(row[0])
+
+
+@app.get("/ready")
+def ready():
+    if is_shutting_down:
+        raise HTTPException(status_code=503, detail="Service is shutting down")
+    return {"status": "ready"}
 
 
 @app.get("/health")
