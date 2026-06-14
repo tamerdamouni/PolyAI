@@ -1,4 +1,5 @@
 import os
+import signal
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -108,7 +109,6 @@ class TestPredictionsByScore(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
 
-        # person (0.91) and dog (0.75) qualify; car (0.40) does not
         self.assertEqual(len(data), 2)
         self.assertTrue(all(o["score"] >= 0.75 for o in data))
         self.assertEqual(data[0]["prediction_uid"], "uid-1")
@@ -233,5 +233,36 @@ class TestGetPredictionImage(unittest.TestCase):
     def test_unknown_uid_returns_404(self):
         response = self.client.get("/prediction/nope/image")
         self.assertEqual(response.status_code, 404)
+
+
+class TestReady(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        # Reset the module-level flag so other tests are unaffected
+        app_module.is_shutting_down = False
+
+    def test_ready_when_running(self):
+        response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ready"})
+
+    def test_ready_when_shutting_down_returns_503(self):
+        app_module.is_shutting_down = True
+        response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "Service is shutting down")
+
+
+class TestSigtermHandler(unittest.TestCase):
+    def tearDown(self):
+        app_module.is_shutting_down = False
+
+    def test_handle_sigterm_sets_flag_and_exits(self):
+        with self.assertRaises(SystemExit) as cm:
+            app_module.handle_sigterm(signal.SIGTERM, None)
+        self.assertEqual(cm.exception.code, 0)
+        self.assertTrue(app_module.is_shutting_down)
 
 
