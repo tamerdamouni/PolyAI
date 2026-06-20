@@ -13,6 +13,7 @@ import sys
 
 is_shutting_down = False
 
+# Graceful shutdown: handle SIGTERM so systemd stops the service cleanly
 def handle_sigterm(signum, frame):
     global is_shutting_down
     is_shutting_down = True
