@@ -1,10 +1,8 @@
-name: Deploy Yolo
+name: Deploy PolyAI
 
 on:
   push:
-    branches:
-      - main
-      - dev
+    branches: [main, dev]
 
 jobs:
   deploy-dev:
@@ -18,12 +16,26 @@ jobs:
           username: ubuntu
           key: ${{ secrets.DEV_INSTANCE_SSH_KEY }}
           script: |
-            cd /home/ubuntu/PolyAI/services/yolo
+            set -e
+            cd /home/ubuntu/PolyAI
             git fetch origin
             git reset --hard origin/dev
+
+            cd /home/ubuntu/PolyAI/services/yolo
             source venv/bin/activate
             pip install -r requirements.txt
+            deactivate
             sudo systemctl restart yolo.service
+
+            cd /home/ubuntu/PolyAI/services/agent
+            source venv/bin/activate
+            pip install -r requirements.txt
+            deactivate
+            sudo systemctl restart agent.service
+
+            cd /home/ubuntu/PolyAI/services/frontend
+            npm install
+            sudo systemctl restart frontend.service
 
   deploy-prod:
     if: github.ref == 'refs/heads/main'
@@ -36,9 +48,23 @@ jobs:
           username: ubuntu
           key: ${{ secrets.PROD_INSTANCE_SSH_KEY }}
           script: |
-            cd /home/ubuntu/PolyAI/services/yolo
+            set -e
+            cd /home/ubuntu/PolyAI
             git fetch origin
             git reset --hard origin/main
+
+            cd /home/ubuntu/PolyAI/services/yolo
             source venv/bin/activate
             pip install -r requirements.txt
+            deactivate
             sudo systemctl restart yolo.service
+
+            cd /home/ubuntu/PolyAI/services/agent
+            source venv/bin/activate
+            pip install -r requirements.txt
+            deactivate
+            sudo systemctl restart agent.service
+
+            cd /home/ubuntu/PolyAI/services/frontend
+            npm install
+            sudo systemctl restart frontend.service
