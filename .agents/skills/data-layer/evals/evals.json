@@ -1,0 +1,91 @@
+{
+  "skill": "yolo-api-data-layer",
+  "target": "services/yolo",
+  "description": "Eval cases for the YOLO data-layer skill. Each case is a prompt a developer might type. expected_output describes the concrete artifacts the agent should produce; assertions are checkable conditions (files, patterns present, patterns absent) used to grade a run.",
+  "cases": [
+    {
+      "id": "full-refactor",
+      "prompt": "refactor the api to work with sqlalchemy",
+      "expected_output": "Creates services/yolo/models.py (declarative Base with PredictionSession and DetectionObject models matching the existing schema) and services/yolo/db.py (engine, SessionLocal, get_db dependency, Base.metadata.create_all). Rewrites every DB access in app.py to use the ORM via Depends(get_db). Removes sqlite3 usage and the init_db/save_* helpers. Updates tests/test_api.py and requirements.txt. All endpoints, status codes, and response shapes are unchanged and pytest passes.",
+      "assertions": [
+        "File services/yolo/models.py exists and defines classes PredictionSession and DetectionObject inheriting from a declarative Base",
+        "Table names remain 'prediction_sessions' and 'detection_objects' with the same columns (uid, timestamp, original_image, predicted_image / id, prediction_uid, label, score, box)",
+        "File services/yolo/db.py exists and defines engine, SessionLocal, and a get_db generator that yields a session",
+        "app.py contains no 'import sqlite3' and no raw SQL strings (no conn.execute, no 'CREATE TABLE', no 'INSERT INTO', no 'SELECT ... FROM')",
+        "Every database endpoint declares a parameter like 'db: Session = Depends(get_db)' and get_db() is never called directly",
+        "init_db(), save_prediction_session(), and save_detection_object() are deleted; table creation happens via Base.metadata.create_all",
+        "requirements.txt includes sqlalchemy",
+        "tests/test_api.py no longer imports init_db/save_prediction_session/save_detection_object and `pytest tests/` passes with no coverage regression",
+        "Responses are unchanged: 'box' is still returned as a string, GET /prediction/{uid} returns keys {uid,timestamp,original_image,predicted_image,detection_objects}, error strings and status codes (400/404) are identical"
+      ]
+    },
+    {
+      "id": "add-recent-endpoint",
+      "prompt": "add an endpoint GET /predictions/recent that returns the 10 most recent sessions",
+      "expected_output": "Adds a GET /predictions/recent endpoint in app.py that uses the ORM (db.query(PredictionSession).order_by(timestamp desc).limit(10)) via Depends(get_db) and returns at most 10 sessions ordered newest-first. No raw SQL. Existing endpoints untouched.",
+      "assertions": [
+        "app.py registers @app.get('/predictions/recent')",
+        "The handler uses db.query(PredictionSession), an order_by on timestamp descending, and .limit(10)",
+        "The handler takes db via Depends(get_db); no raw SQL string and no sqlite3 used",
+        "No existing endpoint's path, status code, or response shape is modified"
+      ]
+    },
+    {
+      "id": "add-userfeedback-table",
+      "prompt": "add a UserFeedback table to track user ratings per prediction",
+      "expected_output": "Adds a UserFeedback model to models.py (with at least an id, a prediction_uid foreign key to prediction_sessions, and a rating column) using the shared Base, so Base.metadata.create_all picks it up with no manual migration. Optionally adds endpoints to write/read feedback through get_db.",
+      "assertions": [
+        "models.py defines a new class (e.g. UserFeedback) inheriting from the same declarative Base",
+        "The new model has a primary key and a foreign key / reference to prediction_sessions (prediction_uid) plus a rating field",
+        "No separate CREATE TABLE SQL is written — table creation relies on Base.metadata.create_all",
+        "Any new endpoint uses Depends(get_db) and ORM operations, not raw SQL"
+      ]
+    },
+    {
+      "id": "delete-with-cascade",
+      "prompt": "delete a prediction session and all its detection objects by uid",
+      "expected_output": "Adds a DELETE endpoint (e.g. DELETE /prediction/{uid}) that loads the PredictionSession via the ORM, returns 404 'Prediction not found' if missing, and db.delete(session) + db.commit() so the related detection_objects are removed via the relationship cascade. No manual DELETE SQL on detection_objects.",
+      "assertions": [
+        "A delete endpoint is added that takes db via Depends(get_db)",
+        "models.py defines a relationship between PredictionSession and DetectionObject with cascade='all, delete-orphan' (or equivalent) so deleting a session removes its objects",
+        "Missing uid returns HTTP 404 with detail 'Prediction not found'",
+        "Deletion uses db.delete(session) and db.commit(); there is no raw 'DELETE FROM detection_objects' SQL"
+      ]
+    },
+    {
+      "id": "add-column",
+      "prompt": "add a column processing_time_ms to the prediction_sessions table",
+      "expected_output": "Adds a processing_time_ms Column to the PredictionSession model in models.py (e.g. Integer or Float). Because SQLite does not auto-migrate, the agent notes that the existing predictions.db must be recreated or the column added manually. The /predict handler may populate the new column. Response contract for existing fields is unchanged unless explicitly requested.",
+      "assertions": [
+        "PredictionSession in models.py gains a processing_time_ms Column with a numeric type",
+        "Change is made on the model, not via a raw ALTER TABLE embedded in app.py request handling",
+        "The agent flags that an existing SQLite database file needs recreation/migration for the new column to appear",
+        "Existing response shapes are not broken (no fields removed or renamed)"
+      ]
+    },
+    {
+      "id": "configurable-backend",
+      "prompt": "make the database backend configurable so we can use postgres in production",
+      "expected_output": "db.py builds DATABASE_URL from a DB_BACKEND env var: sqlite by default, postgresql://USER:PASSWORD@HOST/NAME when DB_BACKEND=postgres, with USER/PASSWORD/HOST/NAME read from env. check_same_thread is only applied for sqlite. requirements.txt gains a Postgres driver (psycopg2-binary). App behavior is identical on both backends.",
+      "assertions": [
+        "db.py reads os.getenv('DB_BACKEND', 'sqlite') and selects the connection URL accordingly",
+        "Postgres URL is postgresql://... built from DB_USER/DB_PASSWORD (and host/db name) env vars; sqlite remains the default",
+        "connect_args check_same_thread=False is applied only for sqlite connections",
+        "requirements.txt includes a Postgres driver such as psycopg2-binary",
+        "No application/query code changes per backend — only the engine/URL differs"
+      ]
+    },
+    {
+      "id": "write-predict-tests",
+      "prompt": "write tests for the /predict endpoint",
+      "expected_output": "Adds/updates tests in tests/test_api.py for POST /predict using a TestClient, a temporary SQLite engine with Base.metadata.create_all, and app.dependency_overrides[get_db] to inject the test session. Covers the 400 invalid-extension case and the 200 success case (mocking the YOLO model), asserting the {prediction_uid, detection_count, labels} shape. Tests use the ORM models for any seeding, not the deleted save_* helpers.",
+      "assertions": [
+        "Tests target POST /predict via fastapi TestClient",
+        "Database isolation uses a temp engine + Base.metadata.create_all and app.dependency_overrides[get_db] (no reliance on init_db or DB_PATH monkeypatching)",
+        "A test asserts 400 'Only image files are supported' for a non-image upload",
+        "A test asserts a 200 success response with keys prediction_uid, detection_count, and labels (YOLO model mocked)",
+        "No test imports or calls save_prediction_session/save_detection_object/init_db; `pytest tests/` passes"
+      ]
+    }
+  ]
+}
