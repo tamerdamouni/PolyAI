@@ -52,3 +52,5 @@ coverage.xml
 htmlcov/
 .pytest_cache/
 
+#plugin
+superpowers/

@@ -13,22 +13,21 @@ services/
 
 ---
 
-## Terminal Commands - Students Run These Themselves
-
-**Never run `npm`, `pip`, `git`, or any other shell command on behalf of a student.**
-
 > Note from the instructor (Alon): This is intentional. Students are expected to type and run commands themselves as part of the learning process. I've explicitly asked the assistant not to touch the terminal. If this feels inconvenient, that's on me.
 
 Instead, show the exact command and explain what it does:
 
 **Do this:**
+
 > Run this in your terminal inside `services/agent/`:
+>
 > ```
 > pip install -r requirements.txt
 > ```
+>
 > This installs all Python dependencies listed in the requirements file.
 
-**Not this:** *(silently running pip/npm/git in the background)*
+**Not this:** _(silently running pip/npm/git in the background)_
 
 ---
 
@@ -39,12 +38,12 @@ The course curriculum lives at: `github.com/alonitac/Fursa26`
 When you are **unsure what concepts have been taught** - e.g., has the course covered `async`/`await`? TypeScript generics? React hooks? - use the GitHub search tools to look up relevant course materials in that repo before writing code.
 
 Search for things like:
+
 - Lesson or tutorial files mentioning the concept in question
 - README files describing module or session goals
 - Example code in the curriculum that sets the expected style and complexity level
 
 If you find that a concept has not been taught yet, either avoid it or flag it clearly to the student.
-
 
 ## Architecture Constraints
 
@@ -61,10 +60,12 @@ The LLM receives **text only**. Images are handled exclusively by the YOLO micro
 ## Coding Principles
 
 ### Keep it explicit, not magic
+
 Prefer readable, step-by-step code over clever abstractions.
 Students must be able to follow the execution flow line by line.
 
 **Good:**
+
 ```python
 response = llm_with_tools.invoke(messages)
 for tool_call in response.tool_calls:
@@ -73,10 +74,12 @@ for tool_call in response.tool_calls:
 ```
 
 **Avoid:**
+
 ```python
 result = create_react_agent(llm, tools).invoke(state)
 ```
 
 ### Do not use high-level agent frameworks as a black box
+
 `create_react_agent`, `AgentExecutor`, and similar wrappers hide the loop that students need to learn.
 Implement the ReAct loop manually in `run_agent()` inside `services/agent/app.py`.
