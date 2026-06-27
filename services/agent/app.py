@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+import time
 from contextvars import ContextVar
 from typing import Optional
 
@@ -73,31 +74,57 @@ TOOLS = {
 llm = init_chat_model(MODEL, temperature=0)
 llm_with_tools = llm.bind_tools(list(TOOLS.values()))
 
-def run_agent(history: list, max_iterations: int = 10) -> str:
+def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
     """
     Simple ReAct loop:
       1. Send messages to the LLM.
       2. If the LLM requests tool calls, execute them and append results.
       3. Repeat until the LLM returns a plain text response (or we hit max_iterations).
+
+    Returns an AgentResult carrying the final text plus loop metadata.
     """
     messages = [SystemMessage(content=SYSTEM_PROMPT)] + history
 
+    iterations = 0
+    tools_called: list[str] = []
+    prediction_id: Optional[str] = None
+
     for _ in range(max_iterations):
+        iterations += 1
         response: AIMessage = llm_with_tools.invoke(messages)
         messages.append(response)
 
         # No tool calls, the model produced its final answer
         if not response.tool_calls:
-            return response.content
+            return AgentResult(
+                response=response.content,
+                iterations=iterations,
+                tools_called=tools_called,
+                prediction_id=prediction_id,
+            )
 
         # Execute every tool the model requested
         for tool_call in response.tool_calls:
             tool_fn = TOOLS[tool_call["name"]]
             tool_result = tool_fn.invoke(tool_call)          # returns a ToolMessage
             messages.append(tool_result)
+            tools_called.append(tool_call["name"])
+
+            # Capture the prediction id from any detect_objects result
+            try:
+                payload = json.loads(tool_result.content)
+                if payload.get("prediction_uid"):
+                    prediction_id = payload["prediction_uid"]
+            except (json.JSONDecodeError, AttributeError):
+                pass
 
     # Hit the iteration cap without a final text answer
-    return "Sorry, I couldn't complete that within the allowed number of steps."
+    return AgentResult(
+        response="Sorry, I couldn't complete that within the allowed number of steps.",
+        iterations=iterations,
+        tools_called=tools_called,
+        prediction_id=prediction_id,
+    )
 
 
 app = FastAPI(title="Vision Agent")
@@ -122,8 +149,23 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]         # full conversation thread, oldest first
 
 
+class AgentResult(BaseModel):
+    """Internal result carried out of the agent loop (not the HTTP response)."""
+    response: str
+    iterations: int
+    tools_called: list[str]
+    prediction_id: Optional[str] = None
+    context_limit_exceeded: bool = False
+
+
 class ChatResponse(BaseModel):
     response: str
+    prediction_id: Optional[str] = None
+    annotated_image: Optional[str] = None  # base64-encoded annotated image, or null
+    agent_loop_time_s: float
+    iterations: int
+    tools_called: list[str]
+    context_limit_exceeded: bool = False
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -144,9 +186,36 @@ def chat(request: ChatRequest):
 
     token = _current_image_b64.set(latest_image)
     try:
-        return ChatResponse(response=run_agent(lc_messages))
+        start = time.perf_counter()
+        result = run_agent(lc_messages)
+        agent_loop_time_s = time.perf_counter() - start
     finally:
         _current_image_b64.reset(token)
+
+    annotated_image = None
+    if result.prediction_id:
+        annotated_image = _fetch_annotated_image(result.prediction_id)
+
+    return ChatResponse(
+        response=result.response,
+        prediction_id=result.prediction_id,
+        annotated_image=annotated_image,
+        agent_loop_time_s=agent_loop_time_s,
+        iterations=result.iterations,
+        tools_called=result.tools_called,
+        context_limit_exceeded=result.context_limit_exceeded,
+    )
+
+
+def _fetch_annotated_image(prediction_id: str) -> Optional[str]:
+    """Fetch the annotated image from YOLO and base64-encode it, or None on failure."""
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{YOLO_SERVICE_URL}/prediction/{prediction_id}/image")
+            response.raise_for_status()
+        return base64.b64encode(response.content).decode("ascii")
+    except httpx.HTTPError:
+        return None
 
 
 @app.get("/health")
