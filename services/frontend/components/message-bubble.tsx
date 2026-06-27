@@ -31,6 +31,12 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
             </ReactMarkdown>
           </div>
         )}
+        {/* TEMP: visual test of token counting, remove later */}
+        {message.tokens_used && (
+          <p className="mt-2 text-xs text-muted-foreground/70">
+            tokens — in {message.tokens_used.input}, out {message.tokens_used.output}, total {message.tokens_used.total}
+          </p>
+        )}
       </div>
     </div>
   );
