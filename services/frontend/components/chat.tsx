@@ -65,7 +65,6 @@ export default function Chat() {
         role: "assistant",
         content: data.response,
         ...(data.annotated_image ? { image_base64: data.annotated_image } : {}),
-        ...(data.tokens_used ? { tokens_used: data.tokens_used } : {}), // TEMP: remove later
       }]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");

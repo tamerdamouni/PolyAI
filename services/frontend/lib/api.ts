@@ -16,6 +16,5 @@ export async function sendMessage(messages: ChatMessage[]): Promise<ChatResponse
   return {
     response: data.response as string,
     annotated_image: data.annotated_image ?? null,
-    tokens_used: data.tokens_used, // TEMP: visual test of token counting, remove later
   };
 }
