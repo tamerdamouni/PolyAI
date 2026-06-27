@@ -5,16 +5,25 @@ from ultralytics import YOLO
 from PIL import Image
 import logging
 import os
+import time
 import uuid
 import shutil
 import signal
 import sys
 from datetime import datetime
 
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from db import get_db
 from models import DetectionObject, PredictionSession
+
+
+class PredictionResponse(BaseModel):
+    prediction_uid: str
+    detection_count: int
+    labels: list[str]
+    time_took: str  # wall-clock seconds, formatted "1.23"
 
 is_shutting_down = False
 
@@ -66,11 +75,12 @@ def format_timestamp(timestamp):
         return timestamp.strftime("%Y-%m-%d %H:%M:%S")
     return timestamp
 
-@app.post("/predict")
+@app.post("/predict", response_model=PredictionResponse)
 def predict(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
     Predict objects in an image
     """
+    start = time.perf_counter()
     filename = file.filename.lower()
     if not(filename.endswith(".jpg") or filename.endswith(".jpeg") or filename.endswith(".png")):
         raise HTTPException(status_code=400, detail="Only image files are supported")
@@ -115,11 +125,12 @@ def predict(file: UploadFile = File(...), db: Session = Depends(get_db)):
 
     db.commit()
 
-    return {
-        "prediction_uid": uid, 
-        "detection_count": len(results[0].boxes),
-        "labels": detected_labels
-    }
+    return PredictionResponse(
+        prediction_uid=uid,
+        detection_count=len(results[0].boxes),
+        labels=detected_labels,
+        time_took=f"{time.perf_counter() - start:.2f}",
+    )
 
 @app.get("/prediction/{uid}")
 def get_prediction_by_uid(uid: str, db: Session = Depends(get_db)):
