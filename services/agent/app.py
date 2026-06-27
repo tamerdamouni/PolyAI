@@ -74,6 +74,16 @@ TOOLS = {
 llm = init_chat_model(MODEL, temperature=0)
 llm_with_tools = llm.bind_tools(list(TOOLS.values()))
 
+
+class AgentResult(BaseModel):
+    """Internal result carried out of the agent loop (not the HTTP response)."""
+    response: str
+    iterations: int
+    tools_called: list[str]
+    prediction_id: Optional[str] = None
+    context_limit_exceeded: bool = False
+
+
 def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
     """
     Simple ReAct loop:
@@ -147,15 +157,6 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]         # full conversation thread, oldest first
-
-
-class AgentResult(BaseModel):
-    """Internal result carried out of the agent loop (not the HTTP response)."""
-    response: str
-    iterations: int
-    tools_called: list[str]
-    prediction_id: Optional[str] = None
-    context_limit_exceeded: bool = False
 
 
 class ChatResponse(BaseModel):
