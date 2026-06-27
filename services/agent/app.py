@@ -72,7 +72,26 @@ TOOLS = {
 }
 
 llm = init_chat_model(MODEL, temperature=0)
+
+# Verify the model supports the features this agent relies on, using its profile
+# (capability data powered by models.dev). Fail fast at startup if it doesn't.
+REQUIRED_FEATURES = ("tool_calling", "structured_output")
+_profile = getattr(llm, "profile", None) or {}
+_missing = [f for f in REQUIRED_FEATURES if not _profile.get(f)]
+if _missing:
+    raise SystemExit(
+        f"\n[ERROR] Model '{MODEL}' does not support required feature(s): "
+        f"{', '.join(_missing)}.\nChoose a model whose profile supports: "
+        f"{', '.join(REQUIRED_FEATURES)}.\n"
+    )
+
 llm_with_tools = llm.bind_tools(list(TOOLS.values()))
+
+
+class TokenUsage(BaseModel):
+    input: int = 0
+    output: int = 0
+    total: int = 0
 
 
 class AgentResult(BaseModel):
@@ -80,6 +99,7 @@ class AgentResult(BaseModel):
     response: str
     iterations: int
     tools_called: list[str]
+    tokens_used: TokenUsage
     prediction_id: Optional[str] = None
     context_limit_exceeded: bool = False
 
@@ -98,11 +118,18 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
     iterations = 0
     tools_called: list[str] = []
     prediction_id: Optional[str] = None
+    tokens = TokenUsage()
 
     for _ in range(max_iterations):
         iterations += 1
         response: AIMessage = llm_with_tools.invoke(messages)
         messages.append(response)
+
+        # Accumulate token usage across every LLM call in the loop
+        usage = response.usage_metadata or {}
+        tokens.input += usage.get("input_tokens", 0)
+        tokens.output += usage.get("output_tokens", 0)
+        tokens.total += usage.get("total_tokens", 0)
 
         # No tool calls, the model produced its final answer
         if not response.tool_calls:
@@ -110,6 +137,7 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
                 response=response.content,
                 iterations=iterations,
                 tools_called=tools_called,
+                tokens_used=tokens,
                 prediction_id=prediction_id,
             )
 
@@ -133,6 +161,7 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
         response="Sorry, I couldn't complete that within the allowed number of steps.",
         iterations=iterations,
         tools_called=tools_called,
+        tokens_used=tokens,
         prediction_id=prediction_id,
     )
 
@@ -166,6 +195,7 @@ class ChatResponse(BaseModel):
     agent_loop_time_s: float
     iterations: int
     tools_called: list[str]
+    tokens_used: TokenUsage
     context_limit_exceeded: bool = False
 
 
@@ -204,6 +234,7 @@ def chat(request: ChatRequest):
         agent_loop_time_s=agent_loop_time_s,
         iterations=result.iterations,
         tools_called=result.tools_called,
+        tokens_used=result.tokens_used,
         context_limit_exceeded=result.context_limit_exceeded,
     )
 
