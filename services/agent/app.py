@@ -18,7 +18,7 @@ logging.getLogger("langchain").setLevel(logging.DEBUG)
 logging.getLogger("langchain_core").setLevel(logging.DEBUG)
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -232,6 +232,15 @@ def chat(request: ChatRequest):
         start = time.perf_counter()
         result = run_agent(lc_messages)
         agent_loop_time_s = time.perf_counter() - start
+    except Exception as exc:
+        # If the provider's own retries are exhausted, a persistent 429 reaches
+        # us here. Surface it as a clean 429 instead of an opaque 500.
+        if _is_rate_limit_error(exc):
+            raise HTTPException(
+                status_code=429,
+                detail="The model is rate-limited. Please try again shortly.",
+            ) from exc
+        raise
     finally:
         _current_image_b64.reset(token)
 
@@ -249,6 +258,20 @@ def chat(request: ChatRequest):
         tokens_used=result.tokens_used,
         context_limit_exceeded=result.context_limit_exceeded,
     )
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Detect a 429 across provider SDKs without importing each one."""
+    # Anthropic / OpenAI expose .status_code; some wrap it in .response.status_code
+    if getattr(exc, "status_code", None) == 429:
+        return True
+    if getattr(getattr(exc, "response", None), "status_code", None) == 429:
+        return True
+    # Google api_core raises ResourceExhausted with .code == 429
+    if getattr(exc, "code", None) == 429:
+        return True
+    text = str(exc).lower()
+    return "429" in text or "rate limit" in text or "resourceexhausted" in text
 
 
 def _fetch_annotated_image(prediction_id: str) -> Optional[str]:
