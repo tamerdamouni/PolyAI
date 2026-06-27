@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_core.tools import tool
 from pydantic import BaseModel
 
@@ -71,7 +72,18 @@ TOOLS = {
     detect_objects.name: detect_objects
 }
 
-llm = init_chat_model(MODEL, temperature=0)
+# Client-side request throttle, shared across whichever provider MODEL selects.
+# LangChain's InMemoryRateLimiter only spaces out REQUESTS (it does not count
+# tokens), so it keeps us under the per-minute REQUEST cap (RPM) but cannot
+# enforce token-per-minute limits. The limiter is global, so the rate must clear
+# the strictest of the providers in ALLOWED_MODELS (OpenAI / Anthropic / Google).
+rate_limiter = InMemoryRateLimiter(
+    requests_per_second=0.5,    # ~30 requests/min
+    check_every_n_seconds=0.1,  # how often to wake and check the token bucket
+    max_bucket_size=1,          # no bursting — one in-flight request at a time
+)
+
+llm = init_chat_model(MODEL, temperature=0, rate_limiter=rate_limiter)
 
 # Verify the model supports the features this agent relies on, using its profile
 # (capability data powered by models.dev). Fail fast at startup if it doesn't.
