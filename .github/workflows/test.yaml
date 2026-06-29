@@ -51,7 +51,7 @@ jobs:
         run: pytest tests/
         working-directory: services/agent
         env:
-          # Tests mock the LLM, so the key is a dummy and is never used for a
-          # real request — it only lets app.py construct the client at import.
-          MODEL: openai:gpt-5.4-mini
-          OPENAI_API_KEY: sk-test-not-used
+          # Tests mock the LLM; boto3 resolves credentials lazily, so no real
+          # AWS keys are needed to construct the Bedrock client at import.
+          MODEL: openai.gpt-oss-20b-1:0
+          AWS_REGION: us-east-1
