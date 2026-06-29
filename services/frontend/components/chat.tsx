@@ -17,7 +17,7 @@ export default function Chat() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const chatId = useRef<string>(crypto.randomUUID());
+  const chatId = useRef<string>(`chat-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
