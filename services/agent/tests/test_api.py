@@ -5,11 +5,11 @@ These exercise the FastAPI endpoints with TestClient. The agentic loop
 """
 import os
 
-# Must be set before importing app: the startup feature check validates MODEL,
-# and constructing the OpenAI client needs a key. The key is a dummy — the LLM
-# is mocked in every test, so no real request is ever made.
-os.environ.setdefault("MODEL", "openai:gpt-5.4-mini")
-os.environ.setdefault("OPENAI_API_KEY", "sk-test-not-used")
+# Must be set before importing app: the startup check validates MODEL. boto3
+# resolves credentials lazily, so constructing the Bedrock client needs no real
+# AWS keys — the LLM is mocked in every test, so no request is ever made.
+os.environ.setdefault("MODEL", "openai.gpt-oss-20b-1:0")
+os.environ.setdefault("AWS_REGION", "us-east-1")
 
 from unittest.mock import patch
 
