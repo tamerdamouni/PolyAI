@@ -8,6 +8,7 @@ langchain-core
 langchain-aws
 
 httpx
+boto3
 pydantic
 
 pytest

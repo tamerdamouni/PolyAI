@@ -82,7 +82,9 @@ def test_executes_tool_then_answers():
     try:
         with patch.object(
             app_module, "llm_with_tools", FakeChatModel([tool_request, final])
-        ), patch.object(app_module.httpx, "Client", return_value=fake_client):
+        ), patch.object(app_module.httpx, "Client", return_value=fake_client), patch.object(
+            app_module, "s3"
+        ):
             result = run_agent([HumanMessage(content="what's in the image?")])
     finally:
         app_module._current_image_b64.reset(token)
