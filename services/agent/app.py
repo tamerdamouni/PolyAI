@@ -1,11 +1,13 @@
 import base64
-import io
 import json
 import logging
 import os
 import time
+import uuid
 from contextvars import ContextVar
 from typing import Optional
+
+import boto3
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -29,6 +31,11 @@ from pydantic import BaseModel
 YOLO_SERVICE_URL = os.environ.get("YOLO_SERVICE_URL", "http://localhost:8080")
 MODEL = os.environ.get("MODEL")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET")
+
+s3 = boto3.client("s3", region_name=AWS_REGION)
+
+PRESIGN_EXPIRY_SECONDS = 300
 
 # Bedrock model IDs allowed by the account's IAM policy (bedrock_converse provider).
 ALLOWED_MODELS = {
@@ -48,6 +55,7 @@ SYSTEM_PROMPT = (
 )
 
 _current_image_b64: ContextVar[Optional[str]] = ContextVar("current_image_b64", default=None)
+_current_chat_id: ContextVar[Optional[str]] = ContextVar("current_chat_id", default=None)
 
 @tool
 def detect_objects() -> str:
@@ -56,11 +64,22 @@ def detect_objects() -> str:
     if not image_b64:
         return json.dumps({"error": "No image was provided by the user."})
 
+    chat_id = _current_chat_id.get()
+    prediction_id = str(uuid.uuid4())
+    image_s3_key = f"{chat_id}/{prediction_id}/original/image.jpg"
+
     image_bytes = base64.b64decode(image_b64)
+    s3.put_object(
+        Bucket=AWS_S3_BUCKET,
+        Key=image_s3_key,
+        Body=image_bytes,
+        ContentType="image/jpeg",
+    )
+
     with httpx.Client(timeout=30.0) as client:
         response = client.post(
             f"{YOLO_SERVICE_URL}/predict",
-            files={"file": ("image.jpg", io.BytesIO(image_bytes), "image/jpeg")},
+            json={"image_s3_key": image_s3_key, "prediction_id": prediction_id},
         )
         response.raise_for_status()
     return json.dumps(response.json())
@@ -201,12 +220,13 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]         # full conversation thread, oldest first
+    chat_id: str                        # stable id for the conversation, set by the client
 
 
 class ChatResponse(BaseModel):
     response: str
     prediction_id: Optional[str] = None
-    annotated_image: Optional[str] = None  # base64-encoded annotated image, or null
+    annotated_image_url: Optional[str] = None  # presigned S3 URL for the annotated image, or null
     agent_loop_time_s: float
     iterations: int
     tools_called: list[str]
@@ -230,7 +250,8 @@ def chat(request: ChatRequest):
         else:
             lc_messages.append(AIMessage(content=msg.content))
 
-    token = _current_image_b64.set(latest_image)
+    image_token = _current_image_b64.set(latest_image)
+    chat_id_token = _current_chat_id.set(request.chat_id)
     try:
         start = time.perf_counter()
         result = run_agent(lc_messages)
@@ -245,16 +266,17 @@ def chat(request: ChatRequest):
             ) from exc
         raise
     finally:
-        _current_image_b64.reset(token)
+        _current_image_b64.reset(image_token)
+        _current_chat_id.reset(chat_id_token)
 
-    annotated_image = None
+    annotated_image_url = None
     if result.prediction_id:
-        annotated_image = _fetch_annotated_image(result.prediction_id)
+        annotated_image_url = _presign_predicted_url(request.chat_id, result.prediction_id)
 
     return ChatResponse(
         response=result.response,
         prediction_id=result.prediction_id,
-        annotated_image=annotated_image,
+        annotated_image_url=annotated_image_url,
         agent_loop_time_s=agent_loop_time_s,
         iterations=result.iterations,
         tools_called=result.tools_called,
@@ -282,14 +304,16 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     )
 
 
-def _fetch_annotated_image(prediction_id: str) -> Optional[str]:
-    """Fetch the annotated image from YOLO and base64-encode it, or None on failure."""
+def _presign_predicted_url(chat_id: str, prediction_id: str) -> Optional[str]:
+    """Return a short-lived presigned GET URL for the annotated image, or None on failure."""
+    predicted_s3_key = f"{chat_id}/{prediction_id}/predicted/image.jpg"
     try:
-        with httpx.Client(timeout=30.0) as client:
-            response = client.get(f"{YOLO_SERVICE_URL}/prediction/{prediction_id}/image")
-            response.raise_for_status()
-        return base64.b64encode(response.content).decode("ascii")
-    except httpx.HTTPError:
+        return s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": AWS_S3_BUCKET, "Key": predicted_s3_key},
+            ExpiresIn=PRESIGN_EXPIRY_SECONDS,
+        )
+    except Exception:
         return None
 
 

@@ -17,6 +17,7 @@ export default function Chat() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const chatId = useRef<string>(`chat-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -60,11 +61,11 @@ export default function Chat() {
     setLoading(true);
 
     try {
-      const data = await sendMessage(next);
+      const data = await sendMessage(next, chatId.current);
       setMessages([...next, {
         role: "assistant",
         content: data.response,
-        ...(data.annotated_image ? { image_base64: data.annotated_image } : {}),
+        ...(data.annotated_image_url ? { image_url: data.annotated_image_url } : {}),
       }]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");
