@@ -28,19 +28,18 @@ from pydantic import BaseModel
 
 YOLO_SERVICE_URL = os.environ.get("YOLO_SERVICE_URL", "http://localhost:8080")
 MODEL = os.environ.get("MODEL")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
-# Text-only models
+# Bedrock model IDs allowed by the account's IAM policy (bedrock_converse provider).
 ALLOWED_MODELS = {
-    "openai:gpt-5.4-mini",
-    "anthropic:claude-haiku-4-5",
-    "google_genai:gemini-2.5-flash",
+    "openai.gpt-oss-20b-1:0",
 }
 
 if MODEL not in ALLOWED_MODELS:
     allowed_list = "\n  ".join(sorted(ALLOWED_MODELS))
     raise SystemExit(
         f"\n[ERROR] MODEL='{MODEL}' is not allowed.\n"
-        f"Set MODEL in your .env to one of the supported text-only models:\n  {allowed_list}\n"
+        f"Set MODEL in your .env to one of the supported Bedrock model IDs:\n  {allowed_list}\n"
     )
 
 SYSTEM_PROMPT = (
@@ -72,24 +71,28 @@ TOOLS = {
     detect_objects.name: detect_objects
 }
 
-# Client-side request throttle, shared across whichever provider MODEL selects.
-# LangChain's InMemoryRateLimiter only spaces out REQUESTS (it does not count
-# tokens), so it keeps us under the per-minute REQUEST cap (RPM) but cannot
-# enforce token-per-minute limits. The limiter is global, so the rate must clear
-# the strictest of the providers in ALLOWED_MODELS (OpenAI / Anthropic / Google).
+# Client-side request throttle. LangChain's InMemoryRateLimiter only spaces out
+# REQUESTS (it does not count tokens), so it keeps us under the per-minute REQUEST
+# cap (RPM) but cannot enforce token-per-minute limits.
 rate_limiter = InMemoryRateLimiter(
     requests_per_second=0.5,    # ~30 requests/min
     check_every_n_seconds=0.1,  # how often to wake and check the token bucket
     max_bucket_size=1,          # no bursting — one in-flight request at a time
 )
 
-llm = init_chat_model(MODEL, temperature=0, rate_limiter=rate_limiter)
+llm = init_chat_model(
+    MODEL,
+    model_provider="bedrock_converse",
+    region_name=AWS_REGION,
+    temperature=0,
+    rate_limiter=rate_limiter,
+)
 
-# Verify the model supports the features this agent relies on, using its profile
-# (capability data powered by models.dev). Fail fast at startup if it doesn't.
+# Verify the model supports the features this agent relies on, when its profile
+# exposes them. Fail fast at startup if it doesn't.
 REQUIRED_FEATURES = ("tool_calling", "structured_output")
 _profile = getattr(llm, "profile", None) or {}
-_missing = [f for f in REQUIRED_FEATURES if not _profile.get(f)]
+_missing = [f for f in REQUIRED_FEATURES if f in _profile and not _profile[f]]
 if _missing:
     raise SystemExit(
         f"\n[ERROR] Model '{MODEL}' does not support required feature(s): "
@@ -146,7 +149,7 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
         # No tool calls, the model produced its final answer
         if not response.tool_calls:
             return AgentResult(
-                response=response.content,
+                response=response.text,
                 iterations=iterations,
                 tools_called=tools_called,
                 tokens_used=tokens,
@@ -271,7 +274,12 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     if getattr(exc, "code", None) == 429:
         return True
     text = str(exc).lower()
-    return "429" in text or "rate limit" in text or "resourceexhausted" in text
+    return (
+        "429" in text
+        or "rate limit" in text
+        or "resourceexhausted" in text
+        or "throttling" in text
+    )
 
 
 def _fetch_annotated_image(prediction_id: str) -> Optional[str]:

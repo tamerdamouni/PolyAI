@@ -20,17 +20,16 @@ Configure environment:
 
 ```bash
 cp .env.example .env
-# Edit .env and set at least OPENAI_API_KEY (or another provider key) and MODEL
+# Edit .env and set MODEL and AWS_REGION. AWS credentials are resolved from the
+# standard boto3 chain (env vars, shared profile, or instance/task role).
 ```
 
 `.env` variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | - | Required for OpenAI models |
-| `ANTHROPIC_API_KEY` | - | Required for Anthropic models |
-| `GOOGLE_API_KEY` | - | Required for Google models |
-| `MODEL` | `claude-sonnet-4-6` | Any model string supported by `init_chat_model` |
+| `MODEL` | - | Bedrock model ID (e.g. `openai.gpt-oss-20b-1:0`) |
+| `AWS_REGION` | `us-east-1` | AWS region for the Bedrock runtime |
 | `YOLO_SERVICE_URL` | `http://localhost:8080` | URL of the YOLO microservice |
 
 ## Running
