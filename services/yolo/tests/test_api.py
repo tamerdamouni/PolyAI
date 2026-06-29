@@ -166,17 +166,10 @@ class TestPredict(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 
-    def test_invalid_extension_returns_400(self):
-        response = self.client.post(
-            "/predict",
-            files={"file": ("notes.txt", b"hello", "text/plain")},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "Only image files are supported")
-
+    @patch("app.s3")
     @patch("app.Image")
     @patch("app.model")
-    def test_no_detections(self, mock_model, mock_image):
+    def test_no_detections(self, mock_model, mock_image, mock_s3):
         fake_result = MagicMock()
         fake_result.boxes = []
         fake_result.plot.return_value = MagicMock()
@@ -186,17 +179,23 @@ class TestPredict(unittest.TestCase):
 
         response = self.client.post(
             "/predict",
-            files={"file": ("test.jpg", b"fake image bytes", "image/jpeg")},
+            json={
+                "image_s3_key": "chat-1/uid-1/original/image.jpg",
+                "prediction_id": "uid-1",
+            },
         )
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["detection_count"], 0)
         self.assertEqual(body["labels"], [])
-        self.assertIn("prediction_uid", body)
+        self.assertEqual(body["prediction_uid"], "uid-1")
+        mock_s3.download_file.assert_called_once()
+        mock_s3.upload_file.assert_called_once()
 
+    @patch("app.s3")
     @patch("app.Image")
     @patch("app.model")
-    def test_with_detections(self, mock_model, mock_image):
+    def test_with_detections(self, mock_model, mock_image, mock_s3):
         fake_box = MagicMock()
         fake_box.cls[0].item.return_value = 0
         fake_box.conf = [0.88]
@@ -211,12 +210,21 @@ class TestPredict(unittest.TestCase):
 
         response = self.client.post(
             "/predict",
-            files={"file": ("test.jpg", b"fake image bytes", "image/jpeg")},
+            json={
+                "image_s3_key": "chat-1/uid-2/original/image.jpg",
+                "prediction_id": "uid-2",
+            },
         )
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["detection_count"], 1)
         self.assertEqual(body["labels"], ["person"])
+        # predicted key is derived by swapping the original/ segment
+        mock_s3.upload_file.assert_called_once()
+        self.assertEqual(
+            mock_s3.upload_file.call_args[0][2],
+            "chat-1/uid-2/predicted/image.jpg",
+        )
 
 
 class TestGetPredictionByUid(unittest.TestCase):
@@ -237,29 +245,6 @@ class TestGetPredictionByUid(unittest.TestCase):
         response = self.client.get("/prediction/does-not-exist")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Prediction not found")
-
-
-class TestGetPredictionImage(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
-
-    def test_found_returns_image_file(self):
-        image_path = os.path.join(app_module.PREDICTED_DIR, "pred.jpg")
-        with open(image_path, "wb") as file_handle:
-            file_handle.write(b"fake image content")
-        seed_prediction(db_module.SessionLocal, "uid-1", "orig.jpg", image_path)
-
-        response = self.client.get("/prediction/uid-1/image")
-        self.assertEqual(response.status_code, 200)
-
-    def test_missing_file_returns_404(self):
-        seed_prediction(db_module.SessionLocal, "uid-1", "orig.jpg", "/no/such/file.jpg")
-        response = self.client.get("/prediction/uid-1/image")
-        self.assertEqual(response.status_code, 404)
-
-    def test_unknown_uid_returns_404(self):
-        response = self.client.get("/prediction/nope/image")
-        self.assertEqual(response.status_code, 404)
 
 
 class TestReady(unittest.TestCase):

@@ -15,9 +15,9 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
             : "bg-muted text-foreground rounded-bl-sm border border-border/50"
         )}
       >
-        {message.image_base64 && (
+        {(message.image_base64 || message.image_url) && (
           <img
-            src={`data:image/jpeg;base64,${message.image_base64}`}
+            src={message.image_url ?? `data:image/jpeg;base64,${message.image_base64}`}
             alt="uploaded"
             className="mb-2 max-h-48 rounded-lg object-contain"
           />

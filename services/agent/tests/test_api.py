@@ -39,7 +39,7 @@ def test_chat_returns_structured_response():
     with patch.object(app_module, "run_agent", return_value=fake_result):
         response = client.post(
             "/chat",
-            json={"messages": [{"role": "user", "content": "hello"}]},
+            json={"chat_id": "chat-1", "messages": [{"role": "user", "content": "hello"}]},
         )
 
     assert response.status_code == 200
@@ -49,7 +49,7 @@ def test_chat_returns_structured_response():
     assert body["tools_called"] == []
     assert body["tokens_used"] == {"input": 10, "output": 5, "total": 15}
     assert body["prediction_id"] is None
-    assert body["annotated_image"] is None
+    assert body["annotated_image_url"] is None
     assert body["context_limit_exceeded"] is False
     assert isinstance(body["agent_loop_time_s"], (int, float))
 
@@ -63,21 +63,22 @@ def test_chat_includes_annotated_image_when_detection_happened():
         prediction_id="uid-123",
     )
     with patch.object(app_module, "run_agent", return_value=fake_result), patch.object(
-        app_module, "_fetch_annotated_image", return_value="ZmFrZS1pbWFnZQ=="
+        app_module, "_presign_predicted_url", return_value="https://s3.example/predicted.jpg"
     ):
         response = client.post(
             "/chat",
             json={
+                "chat_id": "chat-1",
                 "messages": [
                     {"role": "user", "content": "what's in this?", "image_base64": "eA=="}
-                ]
+                ],
             },
         )
 
     assert response.status_code == 200
     body = response.json()
     assert body["prediction_id"] == "uid-123"
-    assert body["annotated_image"] == "ZmFrZS1pbWFnZQ=="
+    assert body["annotated_image_url"] == "https://s3.example/predicted.jpg"
     assert body["tools_called"] == ["detect_objects"]
 
 
@@ -88,7 +89,7 @@ def test_chat_rate_limit_returns_429():
     with patch.object(app_module, "run_agent", side_effect=FakeRateLimit("rate limited")):
         response = client.post(
             "/chat",
-            json={"messages": [{"role": "user", "content": "hello"}]},
+            json={"chat_id": "chat-1", "messages": [{"role": "user", "content": "hello"}]},
         )
 
     assert response.status_code == 429
@@ -100,5 +101,5 @@ def test_chat_non_rate_limit_error_still_raises():
         with pytest.raises(ValueError):
             client.post(
                 "/chat",
-                json={"messages": [{"role": "user", "content": "hello"}]},
+                json={"chat_id": "chat-1", "messages": [{"role": "user", "content": "hello"}]},
             )
