@@ -2,11 +2,14 @@ import type { ChatMessage, ChatResponse } from "./types";
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8000";
 
-export async function sendMessage(messages: ChatMessage[]): Promise<ChatResponse> {
+export async function sendMessage(
+  messages: ChatMessage[],
+  chatId: string
+): Promise<ChatResponse> {
   const res = await fetch(`${AGENT_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, chat_id: chatId }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
@@ -15,6 +18,6 @@ export async function sendMessage(messages: ChatMessage[]): Promise<ChatResponse
   const data = await res.json();
   return {
     response: data.response as string,
-    annotated_image: data.annotated_image ?? null,
+    annotated_image_url: data.annotated_image_url ?? null,
   };
 }
