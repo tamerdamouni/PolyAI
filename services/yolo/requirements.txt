@@ -3,6 +3,12 @@ fastapi>=0.95.0
 uvicorn>=0.21.1
 httpx>=0.28.1
 
+# AWS SDK for S3 image storage
+boto3>=1.34.0
+
+# Load AWS_REGION / AWS_S3_BUCKET from a local .env in development
+python-dotenv>=1.0.0
+
 # Pillow for image handling
 pillow>=9.5.0
 

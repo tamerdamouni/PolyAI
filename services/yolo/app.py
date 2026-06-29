@@ -1,22 +1,28 @@
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException
 from prometheus_fastapi_instrumentator import Instrumentator
 from ultralytics import YOLO
 from PIL import Image
+import boto3
 import logging
 import os
 import time
-import uuid
-import shutil
 import signal
 import sys
 from datetime import datetime
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from db import get_db
 from models import DetectionObject, PredictionSession
+
+load_dotenv()
+
+
+class PredictRequest(BaseModel):
+    image_s3_key: str
+    prediction_id: str
 
 
 class PredictionResponse(BaseModel):
@@ -66,6 +72,11 @@ PREDICTED_DIR = "uploads/predicted"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PREDICTED_DIR, exist_ok=True)
 
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET")
+
+s3 = boto3.client("s3", region_name=AWS_REGION)
+
 # Download the AI model (tiny model ~6MB)
 model = YOLO("yolov8n.pt")  
 
@@ -76,22 +87,20 @@ def format_timestamp(timestamp):
     return timestamp
 
 @app.post("/predict", response_model=PredictionResponse)
-def predict(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def predict(request: PredictRequest, db: Session = Depends(get_db)):
     """
-    Predict objects in an image
+    Predict objects in an image stored in S3
     """
     start = time.perf_counter()
-    filename = file.filename.lower()
-    if not(filename.endswith(".jpg") or filename.endswith(".jpeg") or filename.endswith(".png")):
-        raise HTTPException(status_code=400, detail="Only image files are supported")
-    
-    ext = os.path.splitext(file.filename)[1]
-    uid = str(uuid.uuid4())
+    image_s3_key = request.image_s3_key
+    uid = request.prediction_id
+    predicted_s3_key = image_s3_key.replace("/original/", "/predicted/")
+
+    ext = os.path.splitext(image_s3_key)[1] or ".jpg"
     original_path = os.path.join(UPLOAD_DIR, uid + ext)
     predicted_path = os.path.join(PREDICTED_DIR, uid + ext)
 
-    with open(original_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    s3.download_file(AWS_S3_BUCKET, image_s3_key, original_path)
 
     results = model(original_path, device="cpu", conf=CONFIDENCE_THRESHOLD)
 
@@ -99,11 +108,13 @@ def predict(file: UploadFile = File(...), db: Session = Depends(get_db)):
     annotated_image = Image.fromarray(annotated_frame)
     annotated_image.save(predicted_path)
 
+    s3.upload_file(predicted_path, AWS_S3_BUCKET, predicted_s3_key)
+
     db.add(
         PredictionSession(
             uid=uid,
-            original_image=original_path,
-            predicted_image=predicted_path,
+            original_image=image_s3_key,
+            predicted_image=predicted_s3_key,
         )
     )
 
@@ -215,17 +226,6 @@ def get_predictions_by_score(min_score: float, db: Session = Depends(get_db)):
         }
         for row in rows
     ]
-
-
-@app.get("/prediction/{uid}/image")
-def get_prediction_image(uid: str, db: Session = Depends(get_db)):
-    """
-    Return the annotated (bounding-box) image for a prediction
-    """
-    session = db.query(PredictionSession).filter_by(uid=uid).first()
-    if not session or not os.path.exists(session.predicted_image):
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(session.predicted_image)
 
 
 @app.get("/ready")
