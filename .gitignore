@@ -41,6 +41,9 @@ Thumbs.db
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
+# Docker local overrides (Mac-only: ~/.aws mount, localhost URL)
+docker-compose.override.yml
+
 # Next.js / frontend
 services/frontend/.next/
 services/frontend/node_modules/

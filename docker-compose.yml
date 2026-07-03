@@ -9,7 +9,7 @@ services:
     build:
       context: ./services/frontend
       args:
-        NEXT_PUBLIC_AGENT_URL: http://localhost:8000
+        NEXT_PUBLIC_AGENT_URL: ${AGENT_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
     networks:
@@ -25,8 +25,6 @@ services:
       - ./services/agent/.env
     environment:
       YOLO_SERVICE_URL: http://yolo:8080
-    volumes:
-      - ${HOME}/.aws:/root/.aws:ro
     networks:
       - polyai-net
     depends_on:
@@ -38,8 +36,6 @@ services:
       - "8080:8080"
     env_file:
       - ./services/yolo/.env
-    volumes:
-      - ${HOME}/.aws:/root/.aws:ro
     networks:
       - polyai-net
 
