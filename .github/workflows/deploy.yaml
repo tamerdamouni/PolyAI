@@ -20,22 +20,7 @@ jobs:
             cd /home/ubuntu/PolyAI
             git fetch origin
             git reset --hard origin/dev
-
-            cd /home/ubuntu/PolyAI/services/yolo
-            source venv/bin/activate
-            pip install -r requirements.txt
-            deactivate
-            sudo systemctl restart yolo.service
-
-            cd /home/ubuntu/PolyAI/services/agent
-            source venv/bin/activate
-            pip install -r requirements.txt
-            deactivate
-            sudo systemctl restart agent.service
-
-            cd /home/ubuntu/PolyAI/services/frontend
-            npm install
-            sudo systemctl restart frontend.service
+            AGENT_URL=http://dev.tamer.fursa.click:8000 docker compose up -d --build
 
   deploy-prod:
     if: github.ref == 'refs/heads/main'

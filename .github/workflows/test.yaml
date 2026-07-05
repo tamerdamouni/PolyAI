@@ -51,7 +51,5 @@ jobs:
         run: pytest tests/
         working-directory: services/agent
         env:
-          # Tests mock the LLM; boto3 resolves credentials lazily, so no real
-          # AWS keys are needed to construct the Bedrock client at import.
           MODEL: openai.gpt-oss-20b-1:0
           AWS_REGION: us-east-1
