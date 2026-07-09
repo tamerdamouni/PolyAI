@@ -28,6 +28,13 @@ def test_health():
     assert response.json() == {"status": "ok"}
 
 
+def test_metrics_endpoint_exposes_prometheus_format():
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "# HELP" in response.text
+    assert "# TYPE" in response.text
+
+
 def test_chat_returns_structured_response():
     fake_result = AgentResult(
         response="Hello there.",
