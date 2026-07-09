@@ -32,24 +32,14 @@ jobs:
           host: ${{ secrets.PROD_INSTANCE_IP }}
           username: ubuntu
           key: ${{ secrets.PROD_INSTANCE_SSH_KEY }}
+          command_timeout: 30m
           script: |
             set -e
             cd /home/ubuntu/PolyAI
             git fetch origin
             git reset --hard origin/main
 
-            cd /home/ubuntu/PolyAI/services/yolo
-            source venv/bin/activate
-            pip install -r requirements.txt
-            deactivate
-            sudo systemctl restart yolo.service
+            sudo systemctl disable --now yolo.service agent.service frontend.service || true
 
-            cd /home/ubuntu/PolyAI/services/agent
-            source venv/bin/activate
-            pip install -r requirements.txt
-            deactivate
-            sudo systemctl restart agent.service
-
-            cd /home/ubuntu/PolyAI/services/frontend
-            npm install
-            sudo systemctl restart frontend.service
+            AGENT_URL=http://prod.tamer.fursa.click:8000 docker compose pull prometheus grafana
+            AGENT_URL=http://prod.tamer.fursa.click:8000 docker compose up -d --build
