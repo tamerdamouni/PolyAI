@@ -19,5 +19,6 @@ export async function sendMessage(
   return {
     response: data.response as string,
     annotated_image_url: data.annotated_image_url ?? null,
+    edited_image_url: data.edited_image_url ?? null,
   };
 }
