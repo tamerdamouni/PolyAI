@@ -99,6 +99,33 @@ def test_executes_tool_then_answers():
     assert result.tokens_used.output == 14
 
 
+def test_run_agent_captures_edited_image_key():
+    tool_request = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "blur",
+                "args": {"image_key": "chat/img/original/image.jpg", "radius": 2.0},
+                "id": "call_1",
+                "type": "tool_call",
+            }
+        ],
+        usage_metadata=_usage(5, 5),
+    )
+    final = AIMessage(content="Blurred it.", usage_metadata=_usage(3, 3))
+
+    with patch.object(
+        app_module, "llm_with_tools", FakeChatModel([tool_request, final])
+    ), patch.object(
+        app_module, "_call_mcp_tool", return_value="chat/img/original/edited-x.png"
+    ):
+        result = run_agent([HumanMessage(content="blur it")])
+
+    assert result.response == "Blurred it."
+    assert result.tools_called == ["blur"]
+    assert result.edited_image_key == "chat/img/original/edited-x.png"
+
+
 def test_hits_iteration_cap():
     class AlwaysRequestsTool:
         def invoke(self, messages):

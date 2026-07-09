@@ -62,10 +62,11 @@ export default function Chat() {
 
     try {
       const data = await sendMessage(next, chatId.current);
+      const resultImageUrl = data.edited_image_url ?? data.annotated_image_url;
       setMessages([...next, {
         role: "assistant",
         content: data.response,
-        ...(data.annotated_image_url ? { image_url: data.annotated_image_url } : {}),
+        ...(resultImageUrl ? { image_url: resultImageUrl } : {}),
       }]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");

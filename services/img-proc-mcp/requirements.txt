@@ -1,0 +1,5 @@
+fastmcp
+pillow
+boto3
+
+pytest
