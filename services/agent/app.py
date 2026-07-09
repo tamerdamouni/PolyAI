@@ -24,6 +24,7 @@ import httpx
 from fastmcp import Client
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.rate_limiters import InMemoryRateLimiter
@@ -302,6 +303,10 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
 
 
 app = FastAPI(title="Vision Agent")
+
+# Expose /metrics with default process metrics + FastAPI HTTP metrics, for
+# Prometheus to scrape (same as the yolo service).
+Instrumentator().instrument(app).expose(app)
 
 app.add_middleware(
     CORSMiddleware,
