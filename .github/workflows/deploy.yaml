@@ -32,6 +32,7 @@ jobs:
           host: ${{ secrets.PROD_INSTANCE_IP }}
           username: ubuntu
           key: ${{ secrets.PROD_INSTANCE_SSH_KEY }}
+          command_timeout: 30m
           script: |
             set -e
             cd /home/ubuntu/PolyAI
@@ -40,4 +41,5 @@ jobs:
 
             sudo systemctl disable --now yolo.service agent.service frontend.service || true
 
+            AGENT_URL=http://prod.tamer.fursa.click:8000 docker compose pull prometheus grafana
             AGENT_URL=http://prod.tamer.fursa.click:8000 docker compose up -d --build
