@@ -77,6 +77,46 @@ def test_blur_region_leaves_outside_untouched():
     assert out.getpixel((2, 2)) == (100, 100, 100)
 
 
+def test_rotate_region_keeps_full_image_size():
+    out = rotate(solid(40, 30, (100, 100, 100)), 90, box=[10, 5, 30, 25])
+    assert out.size == (40, 30)
+
+
+def test_rotate_region_leaves_outside_untouched():
+    img = solid(40, 30, (100, 100, 100))
+    for x in range(12, 20):
+        img.putpixel((x, 10), (0, 0, 0))
+    out = rotate(img, 90, box=[10, 5, 30, 25])
+    assert out.getpixel((0, 0)) == (100, 100, 100)
+    assert out.getpixel((39, 29)) == (100, 100, 100)
+
+
+def test_rotate_non_square_region_is_refit_to_the_box():
+    # A 90 deg rotation of a 30x10 region would be 10x30; it must be squeezed back.
+    out = rotate(solid(50, 50, (10, 20, 30)), 90, box=[5, 5, 35, 15])
+    assert out.size == (50, 50)
+
+
+def test_flip_region_flips_only_inside_the_box():
+    img = Image.new("RGB", (8, 4), (0, 255, 0))
+    for y in range(1, 3):
+        for x in range(2, 4):
+            img.putpixel((x, y), (255, 0, 0))   # left half of region
+        for x in range(4, 6):
+            img.putpixel((x, y), (0, 0, 255))   # right half of region
+    out = flip(img, "horizontal", box=[2, 1, 6, 3])
+    assert out.getpixel((2, 1)) == (0, 0, 255)  # halves swapped inside the box
+    assert out.getpixel((5, 1)) == (255, 0, 0)
+    assert out.getpixel((0, 0)) == (0, 255, 0)  # outside untouched
+    assert out.size == (8, 4)
+
+
+def test_resize_region_keeps_full_image_size_and_outside_untouched():
+    out = resize(solid(40, 40, (100, 100, 100)), 4, 4, box=[10, 10, 30, 30])
+    assert out.size == (40, 40)
+    assert out.getpixel((0, 0)) == (100, 100, 100)
+
+
 def test_add_noise_changes_some_pixels():
     img = solid(50, 50, (128, 128, 128))
     out = add_noise(img, amount=0.2, seed=1)

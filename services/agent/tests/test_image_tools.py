@@ -37,7 +37,31 @@ def test_rotate_tool_calls_mcp():
     with patch.object(app_module, "_call_mcp_tool", return_value=EDITED) as mock_mcp:
         result = app_module.rotate.invoke({"image_key": KEY, "angle": 90})
     assert result == EDITED
-    mock_mcp.assert_called_once_with("rotate", {"image_key": KEY, "angle": 90})
+    mock_mcp.assert_called_once_with("rotate", {"image_key": KEY, "angle": 90, "box": None})
+
+
+def test_rotate_tool_forwards_box_for_object_specific_rotation():
+    with patch.object(app_module, "_call_mcp_tool", return_value=EDITED) as mock_mcp:
+        app_module.rotate.invoke({"image_key": KEY, "angle": 90, "box": [1, 2, 3, 4]})
+    mock_mcp.assert_called_once_with(
+        "rotate", {"image_key": KEY, "angle": 90, "box": [1, 2, 3, 4]}
+    )
+
+
+def test_flip_tool_forwards_box():
+    with patch.object(app_module, "_call_mcp_tool", return_value=EDITED) as mock_mcp:
+        app_module.flip.invoke({"image_key": KEY, "mode": "horizontal", "box": [1, 2, 3, 4]})
+    mock_mcp.assert_called_once_with(
+        "flip", {"image_key": KEY, "mode": "horizontal", "box": [1, 2, 3, 4]}
+    )
+
+
+def test_resize_tool_forwards_box():
+    with patch.object(app_module, "_call_mcp_tool", return_value=EDITED) as mock_mcp:
+        app_module.resize.invoke({"image_key": KEY, "width": 10, "height": 20, "box": [1, 2, 3, 4]})
+    mock_mcp.assert_called_once_with(
+        "resize", {"image_key": KEY, "width": 10, "height": 20, "box": [1, 2, 3, 4]}
+    )
 
 
 def test_crop_tool_requires_box():
