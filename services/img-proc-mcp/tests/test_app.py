@@ -85,6 +85,24 @@ def test_add_noise_region_leaves_corner_untouched(s3):
     assert out.getpixel((0, 0)) == (128, 128, 128)
 
 
+def test_rotate_region_preserves_full_image_dimensions(s3):
+    put_image(s3, ORIGINAL, size=(40, 30))
+    out_key = app.rotate(ORIGINAL, 90, box=[10, 5, 30, 25])
+    assert open_stored(s3, out_key).size == (40, 30)
+
+
+def test_flip_region_preserves_full_image_dimensions(s3):
+    put_image(s3, ORIGINAL, size=(40, 30))
+    out_key = app.flip(ORIGINAL, "horizontal", box=[10, 5, 30, 25])
+    assert open_stored(s3, out_key).size == (40, 30)
+
+
+def test_resize_region_preserves_full_image_dimensions(s3):
+    put_image(s3, ORIGINAL, size=(40, 40))
+    out_key = app.resize(ORIGINAL, 4, 4, box=[10, 10, 30, 30])
+    assert open_stored(s3, out_key).size == (40, 40)
+
+
 def test_flip_invalid_mode_raises(s3):
     put_image(s3, ORIGINAL)
     with pytest.raises(ValueError):

@@ -128,17 +128,19 @@ def _call_mcp_tool(name: str, arguments: dict) -> str:
 
 
 @tool
-def rotate(image_key: str, angle: float) -> str:
-    """Rotate the whole image counter-clockwise by `angle` degrees. Pass the image's
-    S3 key. Returns the new image's S3 key."""
-    return _call_mcp_tool("rotate", {"image_key": image_key, "angle": angle})
+def rotate(image_key: str, angle: float, box: Optional[list[float]] = None) -> str:
+    """Rotate the image counter-clockwise by `angle` degrees. Pass `box`
+    [x1,y1,x2,y2] to rotate only that region (e.g. a detected object); omit it to
+    rotate the whole image. Returns the new image's S3 key."""
+    return _call_mcp_tool("rotate", {"image_key": image_key, "angle": angle, "box": box})
 
 
 @tool
-def flip(image_key: str, mode: str) -> str:
-    """Flip the whole image. `mode` is "horizontal" or "vertical". Returns the new
-    image's S3 key."""
-    return _call_mcp_tool("flip", {"image_key": image_key, "mode": mode})
+def flip(image_key: str, mode: str, box: Optional[list[float]] = None) -> str:
+    """Flip the image. `mode` is "horizontal" or "vertical". Pass `box`
+    [x1,y1,x2,y2] to flip only that region (e.g. a detected object); omit it to
+    flip the whole image. Returns the new image's S3 key."""
+    return _call_mcp_tool("flip", {"image_key": image_key, "mode": mode, "box": box})
 
 
 @tool
@@ -150,10 +152,13 @@ def blur(image_key: str, radius: float = 2.0, box: Optional[list[float]] = None)
 
 
 @tool
-def resize(image_key: str, width: int, height: int) -> str:
-    """Resize the whole image to `width` x `height` pixels. Returns the new image's
-    S3 key."""
-    return _call_mcp_tool("resize", {"image_key": image_key, "width": width, "height": height})
+def resize(image_key: str, width: int, height: int, box: Optional[list[float]] = None) -> str:
+    """Resize the image to `width` x `height` pixels. Pass `box` [x1,y1,x2,y2] to
+    resample only that region (e.g. a detected object) back into its original
+    bounds; omit it to resize the whole image. Returns the new image's S3 key."""
+    return _call_mcp_tool(
+        "resize", {"image_key": image_key, "width": width, "height": height, "box": box}
+    )
 
 
 @tool
