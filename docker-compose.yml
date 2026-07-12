@@ -22,10 +22,21 @@ services:
       - ./services/agent/.env
     environment:
       YOLO_SERVICE_URL: http://yolo:8080
+      IMG_PROC_MCP_URL: http://img-proc-mcp:9000/mcp
     networks:
       - polyai-net
     depends_on:
       - yolo
+      - img-proc-mcp
+
+  img-proc-mcp:
+    image: ${DOCKERHUB_USERNAME:-polyai}/polyai-img-proc-mcp:${IMG_PROC_MCP_IMAGE_TAG:-local}
+    ports:
+      - "9000:9000"
+    env_file:
+      - ./services/img-proc-mcp/.env
+    networks:
+      - polyai-net
 
   yolo:
     image: ${DOCKERHUB_USERNAME:-polyai}/polyai-yolo:${YOLO_IMAGE_TAG:-local}
