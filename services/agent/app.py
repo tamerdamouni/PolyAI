@@ -279,10 +279,23 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
 
         # Execute every tool the model requested
         for tool_call in response.tool_calls:
-            tool_fn = TOOLS[tool_call["name"]]
-            tool_result = tool_fn.invoke(tool_call)          # returns a ToolMessage
+            # gpt-oss sometimes appends Harmony channel markers to the tool name,
+            # e.g. "detect_objects<|channel|>commentary".
+            name = tool_call["name"].split("<|", 1)[0].strip()
+
+            tool_fn = TOOLS.get(name)
+            if tool_fn is None:
+                messages.append(
+                    ToolMessage(
+                        content=f"Unknown tool {name!r}. Available tools: {', '.join(TOOLS)}.",
+                        tool_call_id=tool_call["id"],
+                    )
+                )
+                continue
+
+            tool_result = tool_fn.invoke({**tool_call, "name": name})  # returns a ToolMessage
             messages.append(tool_result)
-            tools_called.append(tool_call["name"])
+            tools_called.append(name)
 
             # A transform tool's result is the S3 key of the newly edited image.
             if tool_call["name"] in TRANSFORM_TOOL_NAMES:
