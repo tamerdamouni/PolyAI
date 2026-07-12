@@ -157,6 +157,7 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
     for _ in range(max_iterations):
         iterations += 1
         response: AIMessage = llm_with_tools.invoke(messages)
+        _strip_channel_markers(response)
         messages.append(response)
 
         # Accumulate token usage across every LLM call in the loop
@@ -177,9 +178,7 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
 
         # Execute every tool the model requested
         for tool_call in response.tool_calls:
-            # gpt-oss sometimes appends Harmony channel markers to the tool name,
-            # e.g. "detect_objects<|channel|>commentary".
-            name = tool_call["name"].split("<|", 1)[0].strip()
+            name = tool_call["name"]
 
             tool_fn = TOOLS.get(name)
             if tool_fn is None:
@@ -296,6 +295,24 @@ def chat(request: ChatRequest):
         tokens_used=result.tokens_used,
         context_limit_exceeded=result.context_limit_exceeded,
     )
+
+
+def _strip_channel_markers(message: AIMessage) -> None:
+    """Strip Harmony channel markers gpt-oss appends to tool names, e.g.
+    "detect_objects<|channel|>commentary".
+
+    The message is edited in place, before it is appended to the history: Bedrock
+    validates tool names against [a-zA-Z0-9_-]+ on every subsequent request, so a
+    marker left in the history rejects the whole conversation, not just this call.
+    The name appears both in .tool_calls and in the raw content blocks.
+    """
+    for tool_call in message.tool_calls:
+        tool_call["name"] = tool_call["name"].split("<|", 1)[0].strip()
+
+    if isinstance(message.content, list):
+        for block in message.content:
+            if isinstance(block, dict) and isinstance(block.get("name"), str):
+                block["name"] = block["name"].split("<|", 1)[0].strip()
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
