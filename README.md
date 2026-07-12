@@ -16,10 +16,12 @@ See each service's README for how to configure and run it.
 ## Running locally
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
-Compose builds the images locally and tags them `:local`.
+`docker-compose.yml` only references pre-built images — it is what the servers run, and it
+deliberately contains no build instructions so a server can never build from source. The
+`docker-compose.build.yml` overlay adds the build contexts back for local development.
 
 ## Deployment
 

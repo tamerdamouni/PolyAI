@@ -85,7 +85,7 @@ jobs:
             upsert DOCKERHUB_USERNAME "$DOCKERHUB_USERNAME"
             upsert AGENT_IMAGE_TAG "$IMAGE_TAG"
             docker compose pull agent
-            docker compose up -d agent
+            docker compose up -d --no-deps agent
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}

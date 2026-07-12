@@ -86,7 +86,7 @@ jobs:
             upsert DOCKERHUB_USERNAME "$DOCKERHUB_USERNAME"
             upsert YOLO_IMAGE_TAG "$IMAGE_TAG"
             docker compose pull yolo
-            docker compose up -d yolo
+            docker compose up -d --no-deps yolo
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}

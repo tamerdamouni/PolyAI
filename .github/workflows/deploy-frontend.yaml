@@ -89,7 +89,7 @@ jobs:
             upsert DOCKERHUB_USERNAME "$DOCKERHUB_USERNAME"
             upsert FRONTEND_IMAGE_TAG "$IMAGE_TAG"
             docker compose pull frontend
-            docker compose up -d frontend
+            docker compose up -d --no-deps frontend
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
