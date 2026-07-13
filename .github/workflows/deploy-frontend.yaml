@@ -90,6 +90,9 @@ jobs:
             upsert FRONTEND_IMAGE_TAG "$IMAGE_TAG"
             docker compose pull frontend
             docker compose up -d --no-deps frontend
+            # Reclaim disk: each deploy pulls a new tag. Keep 24h so a tag
+            # rollback via .env still works.
+            docker image prune -af --filter "until=24h"
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
