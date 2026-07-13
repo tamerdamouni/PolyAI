@@ -258,6 +258,7 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
     for _ in range(max_iterations):
         iterations += 1
         response: AIMessage = llm_with_tools.invoke(messages)
+        _strip_channel_markers(response)
         messages.append(response)
 
         # Accumulate token usage across every LLM call in the loop
@@ -279,10 +280,21 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
 
         # Execute every tool the model requested
         for tool_call in response.tool_calls:
-            tool_fn = TOOLS[tool_call["name"]]
-            tool_result = tool_fn.invoke(tool_call)          # returns a ToolMessage
+            name = tool_call["name"]
+
+            tool_fn = TOOLS.get(name)
+            if tool_fn is None:
+                messages.append(
+                    ToolMessage(
+                        content=f"Unknown tool {name!r}. Available tools: {', '.join(TOOLS)}.",
+                        tool_call_id=tool_call["id"],
+                    )
+                )
+                continue
+
+            tool_result = tool_fn.invoke({**tool_call, "name": name})  # returns a ToolMessage
             messages.append(tool_result)
-            tools_called.append(tool_call["name"])
+            tools_called.append(name)
 
             # A transform tool's result is the S3 key of the newly edited image.
             if tool_call["name"] in TRANSFORM_TOOL_NAMES:
@@ -416,6 +428,24 @@ def chat(request: ChatRequest):
         tokens_used=result.tokens_used,
         context_limit_exceeded=result.context_limit_exceeded,
     )
+
+
+def _strip_channel_markers(message: AIMessage) -> None:
+    """Strip Harmony channel markers gpt-oss appends to tool names, e.g.
+    "detect_objects<|channel|>commentary".
+
+    The message is edited in place, before it is appended to the history: Bedrock
+    validates tool names against [a-zA-Z0-9_-]+ on every subsequent request, so a
+    marker left in the history rejects the whole conversation, not just this call.
+    The name appears both in .tool_calls and in the raw content blocks.
+    """
+    for tool_call in message.tool_calls:
+        tool_call["name"] = tool_call["name"].split("<|", 1)[0].strip()
+
+    if isinstance(message.content, list):
+        for block in message.content:
+            if isinstance(block, dict) and isinstance(block.get("name"), str):
+                block["name"] = block["name"].split("<|", 1)[0].strip()
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
