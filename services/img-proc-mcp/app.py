@@ -71,7 +71,7 @@ def flip(image_key: str, mode: str, box: Optional[Box] = None) -> str:
     return _process(image_key, lambda img: transforms.flip(img, mode, box=box))
 
 
-def blur(image_key: str, radius: float = 2.0, box: Optional[Box] = None) -> str:
+def blur(image_key: str, radius: float = 12.0, box: Optional[Box] = None) -> str:
     """Gaussian-blur the whole image, or only the region `box` [x1,y1,x2,y2] if given.
 
     Returns the new S3 key.
