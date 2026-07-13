@@ -54,8 +54,21 @@ if MODEL not in ALLOWED_MODELS:
     )
 
 SYSTEM_PROMPT = (
-    "You are an AI vision assistant. You help users understand and analyze images. "
-    "Use the available tools to extract information from images. "
+    "You are an AI vision assistant. You answer questions about images, and edit them "
+    "when asked.\n"
+    "\n"
+    "Only edit an image when the user explicitly asks for it. A question such as "
+    "'what's in this image?' is answered with detect_objects and a plain-English "
+    "reply: never rotate, flip, blur, resize, crop or add noise unless the user asked "
+    "you to.\n"
+    "\n"
+    "To edit one object rather than the whole image, call get_detection_boxes and pass "
+    "that object's box to the edit tool. Omitting box edits the entire image. Objects "
+    "are listed left to right, so 'the first person' is the leftmost one.\n"
+    "\n"
+    "The user sees the resulting image, so describe what you did in a sentence or two. "
+    "Do not print S3 keys, bounding boxes or confidence scores unless you are asked "
+    "for them."
 )
 
 _current_image_b64: ContextVar[Optional[str]] = ContextVar("current_image_b64", default=None)
@@ -93,20 +106,29 @@ def detect_objects() -> str:
 def get_detection_boxes(prediction_id: str) -> str:
     """Get the detected objects (label, confidence, bounding box) for a prior
     detect_objects prediction. Use this to locate a specific object before editing
-    it. Boxes are [x1, y1, x2, y2] in pixel coordinates, one per detected object."""
+    it. Boxes are [x1, y1, x2, y2] in pixel coordinates, ordered left to right, so
+    index 0 is the leftmost object."""
     with httpx.Client(timeout=30.0) as client:
         response = client.get(f"{YOLO_SERVICE_URL}/prediction/{prediction_id}")
         response.raise_for_status()
 
     payload = response.json()
-    detections = []
-    for index, obj in enumerate(payload.get("detection_objects", [])):
-        detections.append({
+    objects = payload.get("detection_objects", [])
+
+    # YOLO returns detections in confidence order. Sort left to right so that
+    # "the first person" means the leftmost one, as a reader would expect.
+    boxes = [(obj, json.loads(obj["box"])) for obj in objects]
+    boxes.sort(key=lambda pair: pair[1][0])
+
+    detections = [
+        {
             "index": index,
             "label": obj["label"],
             "score": obj["score"],
-            "box": json.loads(obj["box"]),
-        })
+            "box": box,
+        }
+        for index, (obj, box) in enumerate(boxes)
+    ]
     return json.dumps({"detections": detections})
 
 
@@ -144,7 +166,7 @@ def flip(image_key: str, mode: str, box: Optional[list[float]] = None) -> str:
 
 
 @tool
-def blur(image_key: str, radius: float = 2.0, box: Optional[list[float]] = None) -> str:
+def blur(image_key: str, radius: float = 12.0, box: Optional[list[float]] = None) -> str:
     """Gaussian-blur the image. Pass `box` [x1,y1,x2,y2] to blur only that region
     (e.g. a detected object); omit it to blur the whole image. Returns the new
     image's S3 key."""
