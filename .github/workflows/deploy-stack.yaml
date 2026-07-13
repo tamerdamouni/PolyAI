@@ -55,6 +55,9 @@ jobs:
             echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             docker compose pull
             docker compose up -d
+            # Reclaim disk: each deploy pulls a new tag. Keep 24h so a tag
+            # rollback via .env still works.
+            docker image prune -af --filter "until=24h"
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
