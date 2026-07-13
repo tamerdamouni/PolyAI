@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+prometheus-fastapi-instrumentator
 python-dotenv
 langchain
 langgraph
