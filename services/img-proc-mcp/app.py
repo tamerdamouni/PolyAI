@@ -56,14 +56,19 @@ def _process(input_key: str, transform) -> str:
     return out_key
 
 
-def rotate(image_key: str, angle: float) -> str:
-    """Rotate the image counter-clockwise by `angle` degrees. Returns the new S3 key."""
-    return _process(image_key, lambda img: transforms.rotate(img, angle))
+def rotate(image_key: str, angle: float, box: Optional[Box] = None) -> str:
+    """Rotate the image counter-clockwise by `angle` degrees, or only the region
+    `box` [x1,y1,x2,y2] if given (the rotated region is refit into the box).
+
+    Returns the new S3 key.
+    """
+    return _process(image_key, lambda img: transforms.rotate(img, angle, box=box))
 
 
-def flip(image_key: str, mode: str) -> str:
-    """Flip the image 'horizontal' or 'vertical'. Returns the new S3 key."""
-    return _process(image_key, lambda img: transforms.flip(img, mode))
+def flip(image_key: str, mode: str, box: Optional[Box] = None) -> str:
+    """Flip the image 'horizontal' or 'vertical', or only the region `box`
+    [x1,y1,x2,y2] if given. Returns the new S3 key."""
+    return _process(image_key, lambda img: transforms.flip(img, mode, box=box))
 
 
 def blur(image_key: str, radius: float = 2.0, box: Optional[Box] = None) -> str:
@@ -74,9 +79,11 @@ def blur(image_key: str, radius: float = 2.0, box: Optional[Box] = None) -> str:
     return _process(image_key, lambda img: transforms.blur(img, radius=radius, box=box))
 
 
-def resize(image_key: str, width: int, height: int) -> str:
-    """Resize the image to `width` x `height`. Returns the new S3 key."""
-    return _process(image_key, lambda img: transforms.resize(img, width, height))
+def resize(image_key: str, width: int, height: int, box: Optional[Box] = None) -> str:
+    """Resize the image to `width` x `height`, or only the region `box`
+    [x1,y1,x2,y2] if given (the region's content is scaled then refit into the
+    box, a resample effect on that object). Returns the new S3 key."""
+    return _process(image_key, lambda img: transforms.resize(img, width, height, box=box))
 
 
 def crop(image_key: str, box: Box) -> str:
