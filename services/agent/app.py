@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -20,6 +21,7 @@ logging.getLogger("langchain").setLevel(logging.DEBUG)
 logging.getLogger("langchain_core").setLevel(logging.DEBUG)
 
 import httpx
+from fastmcp import Client
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain.chat_models import init_chat_model
@@ -29,6 +31,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel
 
 YOLO_SERVICE_URL = os.environ.get("YOLO_SERVICE_URL", "http://localhost:8080")
+IMG_PROC_MCP_URL = os.environ.get("IMG_PROC_MCP_URL", "http://localhost:9000/mcp")
 MODEL = os.environ.get("MODEL")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET")
@@ -85,10 +88,100 @@ def detect_objects() -> str:
     return json.dumps(response.json())
 
 
+@tool
+def get_detection_boxes(prediction_id: str) -> str:
+    """Get the detected objects (label, confidence, bounding box) for a prior
+    detect_objects prediction. Use this to locate a specific object before editing
+    it. Boxes are [x1, y1, x2, y2] in pixel coordinates, one per detected object."""
+    with httpx.Client(timeout=30.0) as client:
+        response = client.get(f"{YOLO_SERVICE_URL}/prediction/{prediction_id}")
+        response.raise_for_status()
+
+    payload = response.json()
+    detections = []
+    for index, obj in enumerate(payload.get("detection_objects", [])):
+        detections.append({
+            "index": index,
+            "label": obj["label"],
+            "score": obj["score"],
+            "box": json.loads(obj["box"]),
+        })
+    return json.dumps({"detections": detections})
+
+
+def _call_mcp_tool(name: str, arguments: dict) -> str:
+    """Call a tool on the img-proc MCP server and return the new image's S3 key.
+
+    The server and the arguments are plain text/JSON, so no image data passes
+    through the LLM — only S3 keys do.
+    """
+    async def _run():
+        async with Client(IMG_PROC_MCP_URL) as client:
+            result = await client.call_tool(name, arguments)
+            data = getattr(result, "data", None)
+            if data is not None:
+                return data
+            return result.content[0].text
+
+    return asyncio.run(_run())
+
+
+@tool
+def rotate(image_key: str, angle: float) -> str:
+    """Rotate the whole image counter-clockwise by `angle` degrees. Pass the image's
+    S3 key. Returns the new image's S3 key."""
+    return _call_mcp_tool("rotate", {"image_key": image_key, "angle": angle})
+
+
+@tool
+def flip(image_key: str, mode: str) -> str:
+    """Flip the whole image. `mode` is "horizontal" or "vertical". Returns the new
+    image's S3 key."""
+    return _call_mcp_tool("flip", {"image_key": image_key, "mode": mode})
+
+
+@tool
+def blur(image_key: str, radius: float = 2.0, box: Optional[list[float]] = None) -> str:
+    """Gaussian-blur the image. Pass `box` [x1,y1,x2,y2] to blur only that region
+    (e.g. a detected object); omit it to blur the whole image. Returns the new
+    image's S3 key."""
+    return _call_mcp_tool("blur", {"image_key": image_key, "radius": radius, "box": box})
+
+
+@tool
+def resize(image_key: str, width: int, height: int) -> str:
+    """Resize the whole image to `width` x `height` pixels. Returns the new image's
+    S3 key."""
+    return _call_mcp_tool("resize", {"image_key": image_key, "width": width, "height": height})
+
+
+@tool
+def crop(image_key: str, box: list[float]) -> str:
+    """Crop the image to the region `box` [x1,y1,x2,y2]. Returns the new image's
+    S3 key."""
+    return _call_mcp_tool("crop", {"image_key": image_key, "box": box})
+
+
+@tool
+def add_noise(image_key: str, amount: float = 0.05, box: Optional[list[float]] = None) -> str:
+    """Add salt-and-pepper noise to the image. Pass `box` [x1,y1,x2,y2] to affect
+    only that region; omit it for the whole image. `amount` is the fraction of
+    pixels affected. Returns the new image's S3 key."""
+    return _call_mcp_tool("add_noise", {"image_key": image_key, "amount": amount, "box": box})
+
+
+# Transform tools all return the S3 key of a newly edited image. run_agent uses
+# this set to know when a tool result is an edited-image key to surface back.
+_TRANSFORM_TOOLS = [rotate, flip, blur, resize, crop, add_noise]
+TRANSFORM_TOOL_NAMES = {t.name for t in _TRANSFORM_TOOLS}
+
 # Registry: map tool name -> tool function
 TOOLS = {
-    detect_objects.name: detect_objects
+    detect_objects.name: detect_objects,
+    get_detection_boxes.name: get_detection_boxes,
 }
+for _t in _TRANSFORM_TOOLS:
+    TOOLS[_t.name] = _t
 
 # Client-side request throttle. LangChain's InMemoryRateLimiter only spaces out
 # REQUESTS (it does not count tokens), so it keeps us under the per-minute REQUEST
@@ -135,6 +228,7 @@ class AgentResult(BaseModel):
     tools_called: list[str]
     tokens_used: TokenUsage
     prediction_id: Optional[str] = None
+    edited_image_key: Optional[str] = None
     context_limit_exceeded: bool = False
 
 
@@ -152,6 +246,7 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
     iterations = 0
     tools_called: list[str] = []
     prediction_id: Optional[str] = None
+    edited_image_key: Optional[str] = None
     tokens = TokenUsage()
 
     for _ in range(max_iterations):
@@ -173,6 +268,7 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
                 tools_called=tools_called,
                 tokens_used=tokens,
                 prediction_id=prediction_id,
+                edited_image_key=edited_image_key,
             )
 
         # Execute every tool the model requested
@@ -181,6 +277,10 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
             tool_result = tool_fn.invoke(tool_call)          # returns a ToolMessage
             messages.append(tool_result)
             tools_called.append(tool_call["name"])
+
+            # A transform tool's result is the S3 key of the newly edited image.
+            if tool_call["name"] in TRANSFORM_TOOL_NAMES:
+                edited_image_key = tool_result.content
 
             # Capture the prediction id from any detect_objects result
             try:
@@ -197,6 +297,7 @@ def run_agent(history: list, max_iterations: int = 10) -> AgentResult:
         tools_called=tools_called,
         tokens_used=tokens,
         prediction_id=prediction_id,
+        edited_image_key=edited_image_key,
     )
 
 
@@ -227,6 +328,7 @@ class ChatResponse(BaseModel):
     response: str
     prediction_id: Optional[str] = None
     annotated_image_url: Optional[str] = None  # presigned S3 URL for the annotated image, or null
+    edited_image_url: Optional[str] = None     # presigned S3 URL for the edited image, or null
     agent_loop_time_s: float
     iterations: int
     tools_called: list[str]
@@ -243,7 +345,23 @@ def chat(request: ChatRequest):
         if msg.role == "user":
             if msg.image_base64:
                 latest_image = msg.image_base64          # saved for detect_objects tool
-                content = msg.content + "\n[An image was uploaded. Use existing tools to analyze it according to user instructions.]"
+                # Store the image in S3 up front so image-processing tools have a
+                # stable key to work on, even when no detection runs. The LLM only
+                # ever sees the key (text), never the image bytes.
+                image_s3_key = f"{request.chat_id}/{uuid.uuid4()}/original/image.jpg"
+                s3.put_object(
+                    Bucket=AWS_S3_BUCKET,
+                    Key=image_s3_key,
+                    Body=base64.b64decode(msg.image_base64),
+                    ContentType="image/jpeg",
+                )
+                content = (
+                    msg.content
+                    + f"\n[An image was uploaded. Its S3 key is '{image_s3_key}'. "
+                    "Use detect_objects and get_detection_boxes to analyze it, and pass "
+                    "this S3 key to the image-processing tools (blur, rotate, flip, "
+                    "resize, crop, add_noise).]"
+                )
             else:
                 content = msg.content
             lc_messages.append(HumanMessage(content=content))
@@ -273,10 +391,15 @@ def chat(request: ChatRequest):
     if result.prediction_id:
         annotated_image_url = _presign_predicted_url(request.chat_id, result.prediction_id)
 
+    edited_image_url = None
+    if result.edited_image_key:
+        edited_image_url = _presign_get_url(result.edited_image_key)
+
     return ChatResponse(
         response=result.response,
         prediction_id=result.prediction_id,
         annotated_image_url=annotated_image_url,
+        edited_image_url=edited_image_url,
         agent_loop_time_s=agent_loop_time_s,
         iterations=result.iterations,
         tools_called=result.tools_called,
@@ -304,17 +427,22 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     )
 
 
-def _presign_predicted_url(chat_id: str, prediction_id: str) -> Optional[str]:
-    """Return a short-lived presigned GET URL for the annotated image, or None on failure."""
-    predicted_s3_key = f"{chat_id}/{prediction_id}/predicted/image.jpg"
+def _presign_get_url(key: str) -> Optional[str]:
+    """Return a short-lived presigned GET URL for an S3 key, or None on failure."""
     try:
         return s3.generate_presigned_url(
             "get_object",
-            Params={"Bucket": AWS_S3_BUCKET, "Key": predicted_s3_key},
+            Params={"Bucket": AWS_S3_BUCKET, "Key": key},
             ExpiresIn=PRESIGN_EXPIRY_SECONDS,
         )
     except Exception:
         return None
+
+
+def _presign_predicted_url(chat_id: str, prediction_id: str) -> Optional[str]:
+    """Return a short-lived presigned GET URL for the annotated image, or None on failure."""
+    predicted_s3_key = f"{chat_id}/{prediction_id}/predicted/image.jpg"
+    return _presign_get_url(predicted_s3_key)
 
 
 @app.get("/health")

@@ -6,10 +6,8 @@ networks:
 
 services:
   frontend:
-    build:
-      context: ./services/frontend
-      args:
-        NEXT_PUBLIC_AGENT_URL: ${AGENT_URL:-http://localhost:8000}
+    image: ${DOCKERHUB_USERNAME:-polyai}/polyai-frontend:${FRONTEND_IMAGE_TAG:-local}
+    restart: unless-stopped
     ports:
       - "3000:3000"
     networks:
@@ -18,20 +16,34 @@ services:
       - agent
 
   agent:
-    build: ./services/agent
+    image: ${DOCKERHUB_USERNAME:-polyai}/polyai-agent:${AGENT_IMAGE_TAG:-local}
+    restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
       - ./services/agent/.env
     environment:
       YOLO_SERVICE_URL: http://yolo:8080
+      IMG_PROC_MCP_URL: http://img-proc-mcp:9000/mcp
     networks:
       - polyai-net
     depends_on:
       - yolo
+      - img-proc-mcp
+
+  img-proc-mcp:
+    image: ${DOCKERHUB_USERNAME:-polyai}/polyai-img-proc-mcp:${IMG_PROC_MCP_IMAGE_TAG:-local}
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    env_file:
+      - ./services/img-proc-mcp/.env
+    networks:
+      - polyai-net
 
   yolo:
-    build: ./services/yolo
+    image: ${DOCKERHUB_USERNAME:-polyai}/polyai-yolo:${YOLO_IMAGE_TAG:-local}
+    restart: unless-stopped
     ports:
       - "8080:8080"
     env_file:
@@ -40,7 +52,8 @@ services:
       - polyai-net
 
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
     ports:
       - "9090:9090"
     volumes:
@@ -51,7 +64,8 @@ services:
       - polyai-net
 
   grafana:
-    image: grafana/grafana
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
     ports:
       - "3001:3000"
     volumes:

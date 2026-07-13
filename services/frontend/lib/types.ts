@@ -8,4 +8,5 @@ export interface ChatMessage {
 export interface ChatResponse {
   response: string;
   annotated_image_url?: string | null;
+  edited_image_url?: string | null;
 }

@@ -1,0 +1,20 @@
+# Local development only. Adds build instructions on top of docker-compose.yml,
+# which references pre-built images and is what the servers run.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+
+services:
+  frontend:
+    build:
+      context: ./services/frontend
+      args:
+        NEXT_PUBLIC_AGENT_URL: ${AGENT_URL:-http://localhost:8000}
+
+  agent:
+    build: ./services/agent
+
+  yolo:
+    build: ./services/yolo
+
+  img-proc-mcp:
+    build: ./services/img-proc-mcp

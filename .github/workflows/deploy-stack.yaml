@@ -1,0 +1,63 @@
+name: Deploy Stack
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "docker-compose.yml"
+      - "services/prometheus/**"
+      - "services/grafana/**"
+      - ".github/workflows/deploy-stack.yaml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Compose and config dirs only, never source code. The loop skips config
+      # dirs that don't exist on this branch, so one workflow serves dev + main.
+      - name: Assemble deploy bundle
+        run: |
+          mkdir -p bundle
+          cp docker-compose.yml bundle/
+          for d in services/prometheus services/grafana; do
+            if [ -d "$d" ]; then
+              mkdir -p "bundle/$d"
+              cp -r "$d/." "bundle/$d/"
+            fi
+          done
+          tar -czf bundle.tar.gz -C bundle .
+
+      - name: Copy deploy bundle to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ github.ref_name == 'main' && secrets.PROD_INSTANCE_IP || secrets.DEV_INSTANCE_IP }}
+          username: ubuntu
+          key: ${{ github.ref_name == 'main' && secrets.PROD_INSTANCE_SSH_KEY || secrets.DEV_INSTANCE_SSH_KEY }}
+          source: "bundle.tar.gz"
+          target: /home/ubuntu/polyai
+
+      # No build job: this only reapplies compose/prometheus config using the
+      # image tags already recorded in the server's .env.
+      - name: Redeploy stack
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ github.ref_name == 'main' && secrets.PROD_INSTANCE_IP || secrets.DEV_INSTANCE_IP }}
+          username: ubuntu
+          key: ${{ github.ref_name == 'main' && secrets.PROD_INSTANCE_SSH_KEY || secrets.DEV_INSTANCE_SSH_KEY }}
+          command_timeout: 30m
+          envs: DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
+          script: |
+            set -e
+            cd /home/ubuntu/polyai
+            tar -xzf bundle.tar.gz && rm bundle.tar.gz
+            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            docker compose pull
+            docker compose up -d
+            # Reclaim disk: each deploy pulls a new tag. Keep 24h so a tag
+            # rollback via .env still works.
+            docker image prune -af --filter "until=24h"
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

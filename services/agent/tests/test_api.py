@@ -64,7 +64,7 @@ def test_chat_includes_annotated_image_when_detection_happened():
     )
     with patch.object(app_module, "run_agent", return_value=fake_result), patch.object(
         app_module, "_presign_predicted_url", return_value="https://s3.example/predicted.jpg"
-    ):
+    ), patch.object(app_module, "s3"):
         response = client.post(
             "/chat",
             json={
@@ -80,6 +80,55 @@ def test_chat_includes_annotated_image_when_detection_happened():
     assert body["prediction_id"] == "uid-123"
     assert body["annotated_image_url"] == "https://s3.example/predicted.jpg"
     assert body["tools_called"] == ["detect_objects"]
+
+
+def test_chat_uploads_image_up_front_when_present():
+    fake_result = AgentResult(
+        response="ok", iterations=1, tools_called=[], tokens_used=TokenUsage()
+    )
+    with patch.object(app_module, "run_agent", return_value=fake_result), patch.object(
+        app_module, "s3"
+    ) as fake_s3:
+        client.post(
+            "/chat",
+            json={
+                "chat_id": "chat-1",
+                "messages": [
+                    {"role": "user", "content": "blur it", "image_base64": "eA=="}
+                ],
+            },
+        )
+    fake_s3.put_object.assert_called_once()
+    key = fake_s3.put_object.call_args.kwargs["Key"]
+    assert key.startswith("chat-1/")
+    assert key.endswith("/original/image.jpg")
+
+
+def test_chat_includes_edited_image_when_transform_happened():
+    fake_result = AgentResult(
+        response="Blurred it.",
+        iterations=2,
+        tools_called=["blur"],
+        tokens_used=TokenUsage(input=10, output=5, total=15),
+        edited_image_key="chat-1/img/original/edited-x.png",
+    )
+    with patch.object(app_module, "run_agent", return_value=fake_result), patch.object(
+        app_module, "_presign_get_url", return_value="https://s3.example/edited.png"
+    ), patch.object(app_module, "s3"):
+        response = client.post(
+            "/chat",
+            json={
+                "chat_id": "chat-1",
+                "messages": [
+                    {"role": "user", "content": "blur it", "image_base64": "eA=="}
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["edited_image_url"] == "https://s3.example/edited.png"
+    assert body["tools_called"] == ["blur"]
 
 
 def test_chat_rate_limit_returns_429():
