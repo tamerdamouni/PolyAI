@@ -65,6 +65,7 @@ services:
 
   node-exporter:
     image: prom/node-exporter
+    restart: unless-stopped
     command:
       - '--path.rootfs=/host'
     pid: host
