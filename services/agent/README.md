@@ -31,6 +31,7 @@ cp .env.example .env
 | `MODEL` | - | Bedrock model ID (e.g. `openai.gpt-oss-20b-1:0`) |
 | `AWS_REGION` | `us-east-1` | AWS region for the Bedrock runtime |
 | `YOLO_SERVICE_URL` | `http://localhost:8080` | URL of the YOLO microservice |
+| `IMG_PROC_MCP_URL` | `http://localhost:9000/mcp` | URL of the img-proc MCP server. The image-processing tools (rotate, flip, blur, resize, crop) fail without it, and it is not yet part of the compose stack — run it manually. |
 
 ## Running
 
