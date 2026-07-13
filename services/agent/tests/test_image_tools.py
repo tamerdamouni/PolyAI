@@ -22,7 +22,7 @@ def test_blur_tool_calls_mcp_with_defaults_and_returns_key():
     with patch.object(app_module, "_call_mcp_tool", return_value=EDITED) as mock_mcp:
         result = app_module.blur.invoke({"image_key": KEY})
     assert result == EDITED
-    mock_mcp.assert_called_once_with("blur", {"image_key": KEY, "radius": 2.0, "box": None})
+    mock_mcp.assert_called_once_with("blur", {"image_key": KEY, "radius": 12.0, "box": None})
 
 
 def test_blur_tool_forwards_box_and_radius():
@@ -96,6 +96,12 @@ def test_get_detection_boxes_parses_boxes_and_indexes():
     payload = json.loads(result)
     detections = payload["detections"]
     assert len(detections) == 3
+
+    # YOLO returns these in confidence order (x1 = 10, 100, 50). They come back
+    # sorted left to right, so index 0 is the leftmost object.
+    assert [d["box"][0] for d in detections] == [10.0, 50.0, 100.0]
+    assert [d["index"] for d in detections] == [0, 1, 2]
+
     assert detections[0] == {"index": 0, "label": "dog", "score": 0.9, "box": [10.0, 20.0, 30.0, 40.0]}
-    assert detections[1]["box"] == [100.0, 20.0, 130.0, 40.0]
-    assert detections[2]["label"] == "cat"
+    assert detections[1] == {"index": 1, "label": "cat", "score": 0.7, "box": [50.0, 60.0, 70.0, 80.0]}
+    assert detections[2] == {"index": 2, "label": "dog", "score": 0.8, "box": [100.0, 20.0, 130.0, 40.0]}
